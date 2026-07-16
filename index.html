@@ -510,6 +510,7 @@
   const CONFIG = {
     presenterName: "Dr. Ricardo Menezes",
     videoSrc: "assets/apresentacao.mp4",
+    videoSrcListening: "assets/apresentacao-escutando.mp4",
     videoSrc2: "assets/apresentacao-parte2.mp4",
     dailyLimit: 10,
     slotNumber: 9,
@@ -648,9 +649,11 @@
     }, CONFIG.videoConnectDelayMs);
   }
 
-  // Troca de vídeo direta, sem borrão/overlay — usada pra passar pra
-  // parte 2, já que o "conectando" deve aparecer só uma vez, no início.
-  function switchVideo(src){
+  // Troca de vídeo direta, sem borrão/overlay — usada pra passar pro
+  // vídeo de "escutando" e pra parte 2, já que o "conectando" deve
+  // aparecer só uma vez, no início.
+  function switchVideo(src, loop){
+    mainVideo.loop = !!loop;
     mainVideo.src = src;
     mainVideo.load();
     mainVideo.play().catch(()=>{
@@ -666,6 +669,14 @@
 
   mainVideo.addEventListener("error", ()=>{
     videoFallback.style.display = "flex";
+  });
+
+  // Quando a parte 1 termina (sem loop), entra o vídeo de "escutando"
+  // em loop, como se o apresentador estivesse aguardando a resposta.
+  mainVideo.addEventListener("ended", ()=>{
+    if (!part2Triggered && mainVideo.currentSrc.includes(CONFIG.videoSrc)){
+      switchVideo(CONFIG.videoSrcListening, true);
+    }
   });
 
   // ---------- Detecção de fala (100% local, nunca sai do navegador) ----------
