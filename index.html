@@ -633,14 +633,8 @@
     startCallTimer();
   });
 
-  // Toca o vídeo atual (ou troca pra outro "src") com o efeito de
-  // borrão + "conectando" por cima, reaproveitado tanto na entrada da
-  // chamada quanto na troca pra parte 2.
-  function playWithConnectingEffect(src){
-    if (src){
-      mainVideo.src = src;
-      mainVideo.load();
-    }
+  // Efeito de borrão + "conectando" — só no começo da chamada, uma vez.
+  function playWithConnectingEffect(){
     mainVideo.classList.add("connecting");
     videoConnectingOverlay.classList.add("visible");
 
@@ -652,6 +646,16 @@
       mainVideo.classList.remove("connecting");
       videoConnectingOverlay.classList.remove("visible");
     }, CONFIG.videoConnectDelayMs);
+  }
+
+  // Troca de vídeo direta, sem borrão/overlay — usada pra passar pra
+  // parte 2, já que o "conectando" deve aparecer só uma vez, no início.
+  function switchVideo(src){
+    mainVideo.src = src;
+    mainVideo.load();
+    mainVideo.play().catch(()=>{
+      tapToUnmute.style.display = "flex";
+    });
   }
 
   tapToUnmute.addEventListener("click", ()=>{
@@ -724,7 +728,7 @@
   function onPersonFinishedSpeaking(){
     if (part2Triggered) return;
     part2Triggered = true;
-    playWithConnectingEffect(CONFIG.videoSrc2);
+    switchVideo(CONFIG.videoSrc2);
   }
 
   function stopVoiceDetection(){
