@@ -11,6 +11,8 @@
     --panel-2: #1e2227;
     --accent: #ff3b30;
     --accent-2: #2d7ff9;
+    --accent-good: #2ecc71;
+    --accent-warn: #ff9f0a;
     --text: #f1f2f4;
     --text-dim: #9aa0a6;
     --radius: 16px;
@@ -63,6 +65,19 @@
     color: var(--accent);
     text-transform: uppercase;
   }
+  .queue-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    margin-top: 12px;
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(46,204,113,.12);
+    color: var(--accent-good);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .queue-badge svg{ width:15px; height:15px; flex-shrink:0; }
   #prejoin-card h1{
     font-size: 19px;
     margin: 14px 0 4px;
@@ -72,6 +87,41 @@
     color: var(--text-dim);
     font-size: 14px;
     margin-bottom: 20px;
+  }
+  .scarcity-banner{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    text-align:left;
+    background: rgba(255,159,10,.1);
+    border: 1px solid rgba(255,159,10,.35);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .scarcity-banner svg{
+    width:16px; height:16px;
+    flex-shrink:0;
+    margin-top: 1px;
+    color: var(--accent-warn);
+  }
+  .scarcity-banner strong{ color: var(--accent-warn); }
+  .scarcity-bar{
+    width:100%;
+    height:5px;
+    border-radius: 3px;
+    background: rgba(255,255,255,.08);
+    overflow:hidden;
+    margin-bottom: 18px;
+  }
+  .scarcity-fill{
+    height:100%;
+    width: 90%;
+    background: var(--accent-warn);
+    border-radius: 3px;
   }
   .preview-box{
     position: relative;
@@ -298,6 +348,12 @@
   <div id="prejoin-screen" class="screen">
     <div id="prejoin-card">
       <span class="live-tag"><span class="brand-dot"></span>ao vivo agora</span>
+
+      <div class="queue-badge">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        <span>Você é o <strong id="queue-position">1º</strong> da fila</span>
+      </div>
+
       <h1>Você foi convidado para uma chamada</h1>
       <p id="prejoin-sub">com <strong>Ricardo Menezes</strong></p>
 
@@ -309,6 +365,12 @@
         </div>
         <div id="cam-status" class="cam-status hidden">câmera desativada</div>
       </div>
+
+      <div class="scarcity-banner">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Atendemos apenas <strong id="daily-limit">10 pessoas por dia</strong>. Você é a vaga <strong id="slot-number">nº 9</strong>.</span>
+      </div>
+      <div class="scarcity-bar"><div id="scarcity-fill" class="scarcity-fill"></div></div>
 
       <button id="join-btn">Ativar câmera e entrar na chamada</button>
       <div id="join-hint">Vamos pedir permissão para usar sua câmera</div>
@@ -367,8 +429,11 @@
 
   // ---------- Configuração ----------
   const CONFIG = {
-    presenterName: "Ricardo Menezes",
+    presenterName: "Dr. Ricardo Menezes",
     videoSrc: "assets/apresentacao.mp4",
+    queuePosition: 1,
+    dailyLimit: 10,
+    slotNumber: 9,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -397,6 +462,11 @@
   document.querySelectorAll("#prejoin-sub strong, #presenter-label").forEach(el=>{
     el.textContent = CONFIG.presenterName;
   });
+
+  document.getElementById("queue-position").textContent = `${CONFIG.queuePosition}º`;
+  document.getElementById("daily-limit").textContent = `${CONFIG.dailyLimit} pessoas por dia`;
+  document.getElementById("slot-number").textContent = `nº ${CONFIG.slotNumber}`;
+  document.getElementById("scarcity-fill").style.width = `${Math.min(100, (CONFIG.slotNumber / CONFIG.dailyLimit) * 100)}%`;
 
   // ---------- Ícones (SVG inline, sem dependências) ----------
   const ICONS = {
