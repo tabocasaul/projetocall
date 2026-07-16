@@ -232,6 +232,32 @@
     height:100%;
     object-fit: cover;
     background:#000;
+    filter: blur(0px);
+    transition: filter 1.1s ease;
+  }
+  #main-video.connecting{
+    filter: blur(22px);
+    transform: scale(1.05);
+  }
+  #video-connecting-overlay{
+    position:absolute;
+    inset:0;
+    z-index: 6;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:12px;
+    background: rgba(0,0,0,.25);
+  }
+  #video-connecting-overlay.visible{ display:flex; }
+  #video-connecting-overlay span{
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    background: rgba(0,0,0,.45);
+    padding: 6px 14px;
+    border-radius: 20px;
   }
   #video-fallback{
     position:absolute;
@@ -428,6 +454,10 @@
 
     <div id="call-stage">
       <video id="main-video" playsinline></video>
+      <div id="video-connecting-overlay">
+        <div class="spinner"></div>
+        <span>Conectando vídeo…</span>
+      </div>
       <div id="video-fallback">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
         <strong>Espaço do vídeo da chamada</strong>
@@ -483,6 +513,7 @@
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
+    videoConnectDelayMs: 3000,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -500,6 +531,7 @@
 
   const mainVideo = document.getElementById("main-video");
   const videoFallback = document.getElementById("video-fallback");
+  const videoConnectingOverlay = document.getElementById("video-connecting-overlay");
   const tapToUnmute = document.getElementById("tap-to-unmute");
 
   const micBtn = document.getElementById("mic-btn");
@@ -585,10 +617,18 @@
       camBtn.disabled = true;
     }
 
+    mainVideo.classList.add("connecting");
+    videoConnectingOverlay.classList.add("visible");
+
     mainVideo.src = CONFIG.videoSrc;
     mainVideo.play().catch(()=>{
       tapToUnmute.style.display = "flex";
     });
+
+    setTimeout(()=>{
+      mainVideo.classList.remove("connecting");
+      videoConnectingOverlay.classList.remove("visible");
+    }, CONFIG.videoConnectDelayMs);
 
     startCallTimer();
   });
