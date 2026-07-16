@@ -430,7 +430,7 @@
       <div class="scarcity-bar"><div id="scarcity-fill" class="scarcity-fill"></div></div>
 
       <button id="join-btn">Ativar câmera e entrar na chamada</button>
-      <div id="join-hint">Vamos pedir permissão para usar sua câmera</div>
+      <div id="join-hint">Vamos pedir permissão para usar sua câmera e seu microfone</div>
     </div>
   </div>
 
@@ -510,10 +510,14 @@
   const CONFIG = {
     presenterName: "Dr. Ricardo Menezes",
     videoSrc: "assets/apresentacao.mp4",
+    videoSrc2: "assets/apresentacao-parte2.mp4",
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
     videoConnectDelayMs: 3000,
+    vadSpeakThreshold: 0.02,
+    vadSilenceMs: 900,
+    vadMinSpeechMs: 400,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -623,6 +627,20 @@
       camBtn.disabled = true;
     }
 
+    playWithConnectingEffect();
+    setupVoiceDetection();
+
+    startCallTimer();
+  });
+
+  // Toca o vídeo atual (ou troca pra outro "src") com o efeito de
+  // borrão + "conectando" por cima, reaproveitado tanto na entrada da
+  // chamada quanto na troca pra parte 2.
+  function playWithConnectingEffect(src){
+    if (src){
+      mainVideo.src = src;
+      mainVideo.load();
+    }
     mainVideo.classList.add("connecting");
     videoConnectingOverlay.classList.add("visible");
 
@@ -634,9 +652,7 @@
       mainVideo.classList.remove("connecting");
       videoConnectingOverlay.classList.remove("visible");
     }, CONFIG.videoConnectDelayMs);
-
-    startCallTimer();
-  });
+  }
 
   tapToUnmute.addEventListener("click", ()=>{
     mainVideo.muted = false;
@@ -647,6 +663,76 @@
   mainVideo.addEventListener("error", ()=>{
     videoFallback.style.display = "flex";
   });
+
+  // ---------- Detecção de fala (100% local, nunca sai do navegador) ----------
+  // Mede o volume do microfone pra saber quando a pessoa fala e quando
+  // termina de falar (silêncio sustentado). Ao detectar isso pela
+  // primeira vez, troca o vídeo pra parte 2, como se o apresentador
+  // tivesse "ouvido" e estivesse respondendo.
+  let vadStream = null;
+  let vadAudioCtx = null;
+  let vadRafId = null;
+  let part2Triggered = false;
+
+  async function setupVoiceDetection(){
+    try{
+      vadStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }catch(err){
+      return; // sem microfone: só não troca de vídeo automaticamente
+    }
+    if (!micOn) vadStream.getAudioTracks().forEach(t => t.enabled = false);
+
+    vadAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = vadAudioCtx.createMediaStreamSource(vadStream);
+    const analyser = vadAudioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+
+    let speaking = false;
+    let speechStart = null;
+    let silenceStart = null;
+
+    function tick(){
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (let i=0; i<data.length; i++){
+        const v = (data[i] - 128) / 128;
+        sumSquares += v * v;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      const now = performance.now();
+
+      if (rms > CONFIG.vadSpeakThreshold){
+        if (!speaking){ speaking = true; speechStart = now; }
+        silenceStart = null;
+      } else if (speaking){
+        if (silenceStart === null) silenceStart = now;
+        if (now - silenceStart > CONFIG.vadSilenceMs){
+          const spokeDuration = silenceStart - speechStart;
+          speaking = false;
+          if (spokeDuration > CONFIG.vadMinSpeechMs){
+            onPersonFinishedSpeaking();
+          }
+        }
+      }
+      vadRafId = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+
+  function onPersonFinishedSpeaking(){
+    if (part2Triggered) return;
+    part2Triggered = true;
+    playWithConnectingEffect(CONFIG.videoSrc2);
+  }
+
+  function stopVoiceDetection(){
+    if (vadRafId) cancelAnimationFrame(vadRafId);
+    vadRafId = null;
+    if (vadAudioCtx){ vadAudioCtx.close(); vadAudioCtx = null; }
+    if (vadStream){ vadStream.getTracks().forEach(t => t.stop()); vadStream = null; }
+  }
 
   // ---------- Timer da chamada ----------
   let timerInterval = null;
@@ -665,6 +751,7 @@
     micOn = !micOn;
     micBtn.classList.toggle("off", !micOn);
     micBtn.innerHTML = micOn ? ICONS.mic : ICONS.micOff;
+    if (vadStream) vadStream.getAudioTracks().forEach(t => t.enabled = micOn);
   });
 
   camBtn.addEventListener("click", ()=>{
@@ -682,6 +769,7 @@
     if (timerInterval) clearInterval(timerInterval);
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     stopTranscription();
+    stopVoiceDetection();
     callScreen.classList.add("hidden");
     document.body.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;">Você saiu da chamada.</div>';
   });
