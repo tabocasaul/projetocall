@@ -227,15 +227,23 @@
     justify-content:center;
     overflow:hidden;
   }
-  #main-video{
+  .main-video{
+    position:absolute;
+    inset:0;
     width:100%;
     height:100%;
     object-fit: cover;
     background:#000;
     filter: blur(0px);
-    transition: filter 1.1s ease;
+    opacity: 0;
+    z-index: 1;
+    transition: filter 1.1s ease, opacity .25s ease;
   }
-  #main-video.connecting{
+  .main-video.active{
+    opacity: 1;
+    z-index: 2;
+  }
+  .main-video.connecting{
     filter: blur(22px);
     transform: scale(1.05);
   }
@@ -453,7 +461,8 @@
     </div>
 
     <div id="call-stage">
-      <video id="main-video" playsinline preload="auto"></video>
+      <video id="video-a" class="main-video active" playsinline preload="auto"></video>
+      <video id="video-b" class="main-video" playsinline preload="auto"></video>
       <div id="video-connecting-overlay">
         <div class="spinner"></div>
         <span>Conectando vídeo…</span>
@@ -463,7 +472,7 @@
         <strong>Espaço do vídeo da chamada</strong>
         <span>
           Coloque o arquivo do vídeo em <code>assets/apresentacao.mp4</code>
-          (mesmo nome usado em <code>#main-video source</code>) que ele passa a tocar aqui automaticamente.
+          (mesmo caminho usado em <code>CONFIG.videoSrc</code>) que ele passa a tocar aqui automaticamente.
         </span>
       </div>
       <div id="presenter-label">Ricardo Menezes</div>
@@ -534,7 +543,10 @@
   const selfPipVideo = document.getElementById("self-pip-video");
   const selfPipOff = document.getElementById("self-pip-off");
 
-  const mainVideo = document.getElementById("main-video");
+  const videoA = document.getElementById("video-a");
+  const videoB = document.getElementById("video-b");
+  let activeEl = videoA;
+  let standbyEl = videoB;
   const videoFallback = document.getElementById("video-fallback");
   const videoConnectingOverlay = document.getElementById("video-connecting-overlay");
   const tapToUnmute = document.getElementById("tap-to-unmute");
@@ -599,11 +611,15 @@
 
   requestCamera();
 
-  // Começa a baixar o vídeo em segundo plano assim que a página abre,
-  // bem antes de "Entrar na chamada" ser clicado, pra já estar
-  // parcialmente bufferizado quando a tela de chamada aparecer.
-  mainVideo.src = CONFIG.videoSrc;
-  mainVideo.load();
+  // Começa a baixar os vídeos em segundo plano assim que a página abre,
+  // bem antes de "Entrar na chamada" ser clicado. A parte 1 vai no
+  // elemento ativo (video-a) e o "escutando" já vai pré-carregando no
+  // elemento em espera (video-b), pra estar pronto quando a parte 1
+  // acabar — assim a troca não precisa esperar nada.
+  videoA.src = CONFIG.videoSrc;
+  videoA.load();
+  videoB.src = CONFIG.videoSrcListening;
+  videoB.load();
 
   // ---------- Entrar na chamada ----------
   joinBtn.addEventListener("click", async ()=>{
@@ -634,49 +650,80 @@
     startCallTimer();
   });
 
-  // Efeito de borrão + "conectando" — só no começo da chamada, uma vez.
+  // Efeito de borrão + "conectando" — só no começo da chamada, uma vez,
+  // sobre o elemento que já está ativo (video-a, com a parte 1).
   function playWithConnectingEffect(){
-    mainVideo.classList.add("connecting");
+    activeEl.classList.add("connecting");
     videoConnectingOverlay.classList.add("visible");
 
-    mainVideo.play().catch(()=>{
+    activeEl.play().catch(()=>{
       tapToUnmute.style.display = "flex";
     });
 
     setTimeout(()=>{
-      mainVideo.classList.remove("connecting");
+      activeEl.classList.remove("connecting");
       videoConnectingOverlay.classList.remove("visible");
     }, CONFIG.videoConnectDelayMs);
   }
 
-  // Troca de vídeo direta, sem borrão/overlay — usada pra passar pro
-  // vídeo de "escutando" e pra parte 2, já que o "conectando" deve
-  // aparecer só uma vez, no início.
-  function switchVideo(src, loop){
-    mainVideo.loop = !!loop;
-    mainVideo.src = src;
-    mainVideo.load();
-    mainVideo.play().catch(()=>{
+  // Troca pro elemento em espera sem tela preta no meio: só revela o
+  // vídeo novo (crossfade rápido via CSS) depois que ele já está de
+  // fato tocando ("playing"), com um fallback por tempo caso esse
+  // evento nunca dispare por algum motivo. "onSwapped" avisa depois
+  // que a troca terminou, recebendo o elemento que sobrou livre.
+  function crossfadeTo(el, src, loop, onSwapped){
+    el.loop = !!loop;
+    if (!el.currentSrc.endsWith(src)){
+      el.src = src;
+      el.load();
+    }
+
+    let swapped = false;
+    function reveal(){
+      if (swapped) return;
+      swapped = true;
+      el.removeEventListener("playing", reveal);
+      el.classList.add("active");
+      activeEl.classList.remove("active");
+      const prev = activeEl;
+      standbyEl = prev;
+      activeEl = el;
+      if (onSwapped) onSwapped(prev);
+    }
+
+    el.addEventListener("playing", reveal);
+    el.play().catch(()=>{
       tapToUnmute.style.display = "flex";
     });
+    setTimeout(reveal, 1500);
   }
 
   tapToUnmute.addEventListener("click", ()=>{
-    mainVideo.muted = false;
-    mainVideo.play();
+    activeEl.muted = false;
+    activeEl.play();
     tapToUnmute.style.display = "none";
   });
 
-  mainVideo.addEventListener("error", ()=>{
-    videoFallback.style.display = "flex";
-  });
+  [videoA, videoB].forEach(el=>{
+    el.addEventListener("error", ()=>{
+      videoFallback.style.display = "flex";
+    });
 
-  // Quando a parte 1 termina (sem loop), entra o vídeo de "escutando"
-  // em loop, como se o apresentador estivesse aguardando a resposta.
-  mainVideo.addEventListener("ended", ()=>{
-    if (!part2Triggered && mainVideo.currentSrc.includes(CONFIG.videoSrc)){
-      switchVideo(CONFIG.videoSrcListening, true);
-    }
+    // Quando a parte 1 termina (sem loop), entra o vídeo de "escutando"
+    // em loop, como se o apresentador estivesse aguardando a resposta.
+    el.addEventListener("ended", ()=>{
+      if (el !== activeEl) return;
+      if (!part2Triggered && el.currentSrc.includes(CONFIG.videoSrc)){
+        crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
+          // Só mexe no elemento que acabou de sobrar DEPOIS da troca
+          // (senão trocaria o src do vídeo que ainda está visível).
+          // Aproveita e já bufferiza a parte 2 nele, pra estar pronta
+          // quando a fala for detectada.
+          freeEl.src = CONFIG.videoSrc2;
+          freeEl.load();
+        });
+      }
+    });
   });
 
   // ---------- Detecção de fala (100% local, nunca sai do navegador) ----------
@@ -739,7 +786,7 @@
   function onPersonFinishedSpeaking(){
     if (part2Triggered) return;
     part2Triggered = true;
-    switchVideo(CONFIG.videoSrc2);
+    crossfadeTo(standbyEl, CONFIG.videoSrc2, false);
   }
 
   function stopVoiceDetection(){
@@ -780,7 +827,8 @@
   });
 
   leaveBtn.addEventListener("click", ()=>{
-    mainVideo.pause();
+    videoA.pause();
+    videoB.pause();
     if (timerInterval) clearInterval(timerInterval);
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     stopTranscription();
