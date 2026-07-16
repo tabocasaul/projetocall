@@ -453,7 +453,7 @@
     </div>
 
     <div id="call-stage">
-      <video id="main-video" playsinline></video>
+      <video id="main-video" playsinline preload="auto"></video>
       <div id="video-connecting-overlay">
         <div class="spinner"></div>
         <span>Conectando vídeo…</span>
@@ -594,6 +594,12 @@
 
   requestCamera();
 
+  // Começa a baixar o vídeo em segundo plano assim que a página abre,
+  // bem antes de "Entrar na chamada" ser clicado, pra já estar
+  // parcialmente bufferizado quando a tela de chamada aparecer.
+  mainVideo.src = CONFIG.videoSrc;
+  mainVideo.load();
+
   // ---------- Entrar na chamada ----------
   joinBtn.addEventListener("click", async ()=>{
     joinBtn.disabled = true;
@@ -620,7 +626,6 @@
     mainVideo.classList.add("connecting");
     videoConnectingOverlay.classList.add("visible");
 
-    mainVideo.src = CONFIG.videoSrc;
     mainVideo.play().catch(()=>{
       tapToUnmute.style.display = "flex";
     });
