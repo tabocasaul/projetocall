@@ -627,6 +627,19 @@
   videoB.src = CONFIG.videoSrcListening;
   videoB.load();
 
+  // As respostas (parte 2, parte 3...) só entram num elemento de vídeo
+  // mais tarde, mas isso não impede de já pedir pro navegador começar a
+  // baixá-las em segundo plano desde já, com prioridade baixa — assim
+  // ganham o máximo de tempo possível de buffer antes de serem
+  // necessárias, especialmente em conexão mais lenta.
+  CONFIG.responseVideos.forEach(src=>{
+    const link = document.createElement("link");
+    link.rel = "prefetch";
+    link.as = "video";
+    link.href = src;
+    document.head.appendChild(link);
+  });
+
   // ---------- Entrar na chamada ----------
   joinBtn.addEventListener("click", async ()=>{
     joinBtn.disabled = true;
@@ -701,7 +714,23 @@
     el.play().catch(()=>{
       tapToUnmute.style.display = "flex";
     });
-    setTimeout(reveal, 1500);
+
+    // Rede de segurança para quando "playing" não dispara (ex: play()
+    // bloqueado pelo navegador). Só força a troca quando o vídeo já
+    // tem pelo menos um quadro pronto pra mostrar (readyState >= 2) —
+    // senão a gente revelaria uma tela preta enquanto ainda carrega.
+    // Em conexão lenta, espera até 12s antes de desistir e trocar
+    // mesmo assim.
+    let attempts = 0;
+    (function pollFallback(){
+      if (swapped) return;
+      attempts++;
+      if (el.readyState >= 2 || attempts >= 40){
+        reveal();
+      } else {
+        setTimeout(pollFallback, 300);
+      }
+    })();
   }
 
   tapToUnmute.addEventListener("click", ()=>{
