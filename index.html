@@ -484,7 +484,7 @@
     // parou) sempre que a transcrição pegar uma fala com cara de
     // dúvida/objeção sobre a chamada ser real.
     videoSrcObjection: "assets/apresentacao-objecao.mp4",
-    objectionPattern: /duvid|não\s*acredito|é\s*(você|voce|tu)\s*mesmo|é\s*real|é\s*ao\s*vivo|é\s*grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|\bia\b|é\s*human|é\s*fake|mentira|não\s*é\s*real|não\s*é\s*você/i,
+    objectionPattern: /duvid|não\s*acredito|é\s*(você|voce|tu)\s*mesmo|é\s*real\b|é\s*ao\s*vivo|é\s*grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|é\s*(uma?\s*)?\bia\b|é\s*human|é\s*fake|mentira|não\s*é\s*real\b|não\s*é\s*você/i,
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
@@ -708,6 +708,7 @@
       if (el !== activeEl) return;
       if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return; // tem retomada própria
       if (responseIndex < CONFIG.responseVideos.length){
+        awaitingResponse = true; // só a partir de agora a fala conta
         crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
           // Só mexe no elemento que acabou de sobrar DEPOIS da troca
           // (senão trocaria o src do vídeo que ainda está visível).
@@ -722,17 +723,25 @@
 
   // ---------- Avanço da conversa (dirigido pela transcrição) ----------
   // Cada vez que a OpenAI fecha a transcrição de uma fala (pessoa falou
-  // e parou), decide o que fazer: se parecer dúvida/objeção, quebra a
-  // objeção com um vídeo próprio e depois retoma de onde parou; senão,
-  // libera a próxima resposta da fila (CONFIG.responseVideos).
+  // e parou), decide o que fazer — mas só reage de verdade se estiver
+  // no vídeo de "escutando" (awaitingResponse). Se um vídeo de conteúdo
+  // ainda está tocando, a fala é ignorada (ex: a pessoa só concordando,
+  // reagindo, comentando por cima) — o vídeo segue normalmente até
+  // chegar na hora de esperar a resposta de verdade.
   let responseIndex = 0;
   let objectionPlaying = false;
+  let awaitingResponse = false;
 
   function handlePersonFinishedSpeaking(text){
+    if (!awaitingResponse){
+      console.log("[fluxo] ignorado (vídeo de conteúdo ainda tocando):", text);
+      return;
+    }
     if (objectionPlaying){
       console.log("[fluxo] ignorado (objeção já em andamento):", text);
       return;
     }
+    awaitingResponse = false;
     if (CONFIG.objectionPattern.test(text)){
       console.log("[fluxo] objeção detectada:", text);
       triggerObjectionBreaker();
@@ -756,7 +765,9 @@
   // Pausa o vídeo atual exatamente onde está, mostra o vídeo de
   // "quebra de objeção" e, quando ele terminar, retoma o vídeo pausado
   // do mesmo ponto (currentTime intacto, já que só pausamos — nunca
-  // trocamos o src dele).
+  // trocamos o src dele). Como só entra aqui com awaitingResponse
+  // (ou seja, estava no loop de escutando), volta a aguardar resposta
+  // depois de retomar.
   function triggerObjectionBreaker(){
     objectionPlaying = true;
     const resumeEl = activeEl;
@@ -767,6 +778,7 @@
     function onObjectionEnded(){
       objectionEl.removeEventListener("ended", onObjectionEnded);
       objectionPlaying = false;
+      awaitingResponse = true;
       crossfadeTo(resumeEl, resumeEl.currentSrc, resumeLoop);
     }
     objectionEl.addEventListener("ended", onObjectionEnded);
