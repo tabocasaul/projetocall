@@ -361,38 +361,6 @@
     z-index: 5;
   }
 
-  .modal-overlay{
-    position:absolute;
-    inset:0;
-    z-index: 9;
-    background: rgba(0,0,0,.7);
-    display:none;
-    align-items:center;
-    justify-content:center;
-    padding: 24px;
-  }
-  .modal-card{
-    width:100%;
-    max-width: 360px;
-    background: var(--panel);
-    border-radius: var(--radius);
-    padding: 22px 20px;
-    text-align:left;
-  }
-  .modal-card strong{ display:block; font-size:15px; margin-bottom:8px; }
-  .modal-card p{ color: var(--text-dim); font-size:13px; line-height:1.5; margin-bottom:18px; }
-  .modal-actions{ display:flex; gap:10px; justify-content:flex-end; }
-  .modal-actions button{
-    border:none;
-    border-radius: 8px;
-    padding: 9px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor:pointer;
-  }
-  .btn-ghost{ background: var(--panel-2); color: var(--text); }
-  .btn-primary{ background: var(--accent-2); color:#fff; }
-
   #tap-to-unmute{
     position:absolute;
     inset:0;
@@ -438,7 +406,7 @@
       <div class="scarcity-bar"><div id="scarcity-fill" class="scarcity-fill"></div></div>
 
       <button id="join-btn">Ativar câmera e entrar na chamada</button>
-      <div id="join-hint">Vamos pedir permissão para usar sua câmera e seu microfone</div>
+      <div id="join-hint">Vamos pedir permissão para usar sua câmera e seu microfone. O áudio pode ser analisado por IA durante a chamada.</div>
     </div>
   </div>
 
@@ -486,21 +454,6 @@
       </div>
 
       <div id="captions" class="hidden"><span id="captions-text"></span></div>
-
-      <div id="transcribe-consent" class="modal-overlay">
-        <div class="modal-card">
-          <strong>Ativar transcrição por IA?</strong>
-          <p>
-            Se você ativar, seu áudio será captado pelo microfone e enviado em tempo real
-            para a OpenAI, que gera a transcrição da conversa. É opcional — você pode
-            desativar a qualquer momento no botão de legendas.
-          </p>
-          <div class="modal-actions">
-            <button id="consent-cancel" class="btn-ghost">Cancelar</button>
-            <button id="consent-accept" class="btn-primary">Ativar transcrição</button>
-          </div>
-        </div>
-      </div>
     </div>
 
     <div id="call-controls">
@@ -527,13 +480,15 @@
       "assets/apresentacao-parte2.mp4",
       "assets/apresentacao-parte3.mp4",
     ],
+    // Tocado (interrompendo o vídeo atual, que retoma depois de onde
+    // parou) sempre que a transcrição pegar uma fala com cara de
+    // dúvida/objeção sobre a chamada ser real.
+    videoSrcObjection: "assets/apresentacao-objecao.mp4",
+    objectionPattern: /duvid|não\s*acredito|é\s*(você|voce|tu)\s*mesmo|é\s*real|é\s*ao\s*vivo|é\s*grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|\bia\b|é\s*human|é\s*fake|mentira|não\s*é\s*real|não\s*é\s*você/i,
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
     videoConnectDelayMs: 3000,
-    vadSpeakThreshold: 0.02,
-    vadSilenceMs: 900,
-    vadMinSpeechMs: 400,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -562,9 +517,6 @@
   const leaveBtn = document.getElementById("leave-btn");
   const transcribeBtn = document.getElementById("transcribe-btn");
 
-  const consentModal = document.getElementById("transcribe-consent");
-  const consentAccept = document.getElementById("consent-accept");
-  const consentCancel = document.getElementById("consent-cancel");
   const captionsBox = document.getElementById("captions");
   const captionsText = document.getElementById("captions-text");
 
@@ -632,7 +584,7 @@
   // baixá-las em segundo plano desde já, com prioridade baixa — assim
   // ganham o máximo de tempo possível de buffer antes de serem
   // necessárias, especialmente em conexão mais lenta.
-  CONFIG.responseVideos.forEach(src=>{
+  [...CONFIG.responseVideos, CONFIG.videoSrcObjection].forEach(src=>{
     const link = document.createElement("link");
     link.rel = "prefetch";
     link.as = "video";
@@ -664,7 +616,7 @@
     }
 
     playWithConnectingEffect();
-    setupVoiceDetection();
+    startTranscription();
 
     startCallTimer();
   });
@@ -750,6 +702,7 @@
     // ainda tenha alguma resposta na fila esperando pra ser liberada.
     el.addEventListener("ended", ()=>{
       if (el !== activeEl) return;
+      if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return; // tem retomada própria
       if (responseIndex < CONFIG.responseVideos.length){
         crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
           // Só mexe no elemento que acabou de sobrar DEPOIS da troca
@@ -763,75 +716,49 @@
     });
   });
 
-  // ---------- Detecção de fala (100% local, nunca sai do navegador) ----------
-  // Mede o volume do microfone pra saber quando a pessoa fala e quando
-  // termina de falar (silêncio sustentado). Cada vez que isso acontece,
-  // libera a próxima resposta da fila (CONFIG.responseVideos), como se
-  // o apresentador tivesse "ouvido" e estivesse respondendo.
-  let vadStream = null;
-  let vadAudioCtx = null;
-  let vadRafId = null;
+  // ---------- Avanço da conversa (dirigido pela transcrição) ----------
+  // Cada vez que a OpenAI fecha a transcrição de uma fala (pessoa falou
+  // e parou), decide o que fazer: se parecer dúvida/objeção, quebra a
+  // objeção com um vídeo próprio e depois retoma de onde parou; senão,
+  // libera a próxima resposta da fila (CONFIG.responseVideos).
   let responseIndex = 0;
+  let objectionPlaying = false;
 
-  async function setupVoiceDetection(){
-    try{
-      vadStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    }catch(err){
-      return; // sem microfone: só não troca de vídeo automaticamente
+  function handlePersonFinishedSpeaking(text){
+    if (objectionPlaying) return;
+    if (CONFIG.objectionPattern.test(text)){
+      triggerObjectionBreaker();
+    } else {
+      advanceResponse();
     }
-    if (!micOn) vadStream.getAudioTracks().forEach(t => t.enabled = false);
-
-    vadAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const source = vadAudioCtx.createMediaStreamSource(vadStream);
-    const analyser = vadAudioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.fftSize);
-
-    let speaking = false;
-    let speechStart = null;
-    let silenceStart = null;
-
-    function tick(){
-      analyser.getByteTimeDomainData(data);
-      let sumSquares = 0;
-      for (let i=0; i<data.length; i++){
-        const v = (data[i] - 128) / 128;
-        sumSquares += v * v;
-      }
-      const rms = Math.sqrt(sumSquares / data.length);
-      const now = performance.now();
-
-      if (rms > CONFIG.vadSpeakThreshold){
-        if (!speaking){ speaking = true; speechStart = now; }
-        silenceStart = null;
-      } else if (speaking){
-        if (silenceStart === null) silenceStart = now;
-        if (now - silenceStart > CONFIG.vadSilenceMs){
-          const spokeDuration = silenceStart - speechStart;
-          speaking = false;
-          if (spokeDuration > CONFIG.vadMinSpeechMs){
-            onPersonFinishedSpeaking();
-          }
-        }
-      }
-      vadRafId = requestAnimationFrame(tick);
-    }
-    tick();
   }
 
-  function onPersonFinishedSpeaking(){
+  function advanceResponse(){
     if (responseIndex >= CONFIG.responseVideos.length) return;
     const nextSrc = CONFIG.responseVideos[responseIndex];
     responseIndex++;
     crossfadeTo(standbyEl, nextSrc, false);
   }
 
-  function stopVoiceDetection(){
-    if (vadRafId) cancelAnimationFrame(vadRafId);
-    vadRafId = null;
-    if (vadAudioCtx){ vadAudioCtx.close(); vadAudioCtx = null; }
-    if (vadStream){ vadStream.getTracks().forEach(t => t.stop()); vadStream = null; }
+  // Pausa o vídeo atual exatamente onde está, mostra o vídeo de
+  // "quebra de objeção" e, quando ele terminar, retoma o vídeo pausado
+  // do mesmo ponto (currentTime intacto, já que só pausamos — nunca
+  // trocamos o src dele).
+  function triggerObjectionBreaker(){
+    objectionPlaying = true;
+    const resumeEl = activeEl;
+    const resumeLoop = resumeEl.loop;
+    resumeEl.pause();
+
+    const objectionEl = standbyEl;
+    function onObjectionEnded(){
+      objectionEl.removeEventListener("ended", onObjectionEnded);
+      objectionPlaying = false;
+      crossfadeTo(resumeEl, resumeEl.currentSrc, resumeLoop);
+    }
+    objectionEl.addEventListener("ended", onObjectionEnded);
+
+    crossfadeTo(objectionEl, CONFIG.videoSrcObjection, false);
   }
 
   // ---------- Timer da chamada ----------
@@ -851,7 +778,7 @@
     micOn = !micOn;
     micBtn.classList.toggle("off", !micOn);
     micBtn.innerHTML = micOn ? ICONS.mic : ICONS.micOff;
-    if (vadStream) vadStream.getAudioTracks().forEach(t => t.enabled = micOn);
+    if (transcribeStream) transcribeStream.getAudioTracks().forEach(t => t.enabled = micOn);
   });
 
   camBtn.addEventListener("click", ()=>{
@@ -870,14 +797,14 @@
     if (timerInterval) clearInterval(timerInterval);
     if (localStream) localStream.getTracks().forEach(t => t.stop());
     stopTranscription();
-    stopVoiceDetection();
     callScreen.classList.add("hidden");
     document.body.innerHTML = '<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;">Você saiu da chamada.</div>';
   });
 
   // ---------- Transcrição por IA (WebRTC + token efêmero da OpenAI) ----------
-  // O áudio só é captado e enviado depois que a pessoa aceita o aviso de
-  // consentimento. window.callTranscript guarda as falas finalizadas.
+  // Liga sozinha assim que a chamada começa (aviso disso já fica no
+  // texto da tela de pré-entrada). window.callTranscript guarda as
+  // falas finalizadas.
   window.callTranscript = [];
 
   let transcribing = false;
@@ -889,17 +816,8 @@
     if (transcribing){
       stopTranscription();
     } else {
-      consentModal.style.display = "flex";
+      startTranscription();
     }
-  });
-
-  consentCancel.addEventListener("click", ()=>{
-    consentModal.style.display = "none";
-  });
-
-  consentAccept.addEventListener("click", ()=>{
-    consentModal.style.display = "none";
-    startTranscription();
   });
 
   async function startTranscription(){
@@ -965,7 +883,8 @@
       captionsBox.classList.remove("hidden");
       captionsText.textContent = "Ouvindo…";
     } catch(err){
-      alert("Não foi possível ativar a transcrição agora. Tente novamente.");
+      // Liga sozinha em segundo plano — se falhar, a chamada em vídeo
+      // continua normal, só sem a parte de transcrição/objeção.
       stopTranscription();
     } finally {
       transcribeBtn.disabled = false;
@@ -979,6 +898,7 @@
       const finalText = event.transcript || captionsText.textContent;
       if (finalText && finalText !== "Ouvindo…"){
         window.callTranscript.push({ text: finalText, at: Date.now() });
+        handlePersonFinishedSpeaking(finalText);
       }
       captionsText.textContent = "Ouvindo…";
     }
