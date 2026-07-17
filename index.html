@@ -597,32 +597,41 @@
   });
 
   // ---------- Entrar na chamada ----------
-  joinBtn.addEventListener("click", async ()=>{
+  joinBtn.addEventListener("click", ()=>{
     joinBtn.disabled = true;
     joinHint.textContent = "Entrando…";
+
+    // Chama o play() já aqui, sincronamente dentro do clique — no
+    // Safari do iPhone, tocar vídeo com som só é permitido se isso
+    // acontecer direto na resposta ao toque. Se isso rodar só depois
+    // do delay da tela de "conectando" abaixo, o iOS bloqueia o som
+    // (funciona normal no Chrome do computador, mas trava no celular).
+    activeEl.play().catch(()=>{
+      tapToUnmute.style.display = "flex";
+    });
 
     prejoinScreen.classList.add("hidden");
     connectingScreen.classList.remove("hidden");
 
-    await new Promise(r => setTimeout(r, 1400));
+    setTimeout(()=>{
+      connectingScreen.classList.add("hidden");
+      callScreen.classList.remove("hidden");
 
-    connectingScreen.classList.add("hidden");
-    callScreen.classList.remove("hidden");
+      if (cameraAvailable && localStream){
+        selfPipVideo.srcObject = localStream;
+      } else {
+        selfPipVideo.classList.add("hidden");
+        selfPipOff.classList.remove("hidden");
+        camBtn.classList.add("off");
+        camBtn.innerHTML = ICONS.camOff;
+        camBtn.disabled = true;
+      }
 
-    if (cameraAvailable && localStream){
-      selfPipVideo.srcObject = localStream;
-    } else {
-      selfPipVideo.classList.add("hidden");
-      selfPipOff.classList.remove("hidden");
-      camBtn.classList.add("off");
-      camBtn.innerHTML = ICONS.camOff;
-      camBtn.disabled = true;
-    }
+      playWithConnectingEffect();
+      startTranscription();
 
-    playWithConnectingEffect();
-    startTranscription();
-
-    startCallTimer();
+      startCallTimer();
+    }, 1400);
   });
 
   // Efeito de borrão + "conectando" — só no começo da chamada, uma vez,
