@@ -520,7 +520,13 @@
     presenterName: "Dr. Ricardo Menezes",
     videoSrc: "assets/apresentacao.mp4",
     videoSrcListening: "assets/apresentacao-escutando.mp4",
-    videoSrc2: "assets/apresentacao-parte2.mp4",
+    // Vídeos de resposta tocados em sequência, um por vez, cada um
+    // liberado quando a fala da pessoa for detectada. Entre cada um
+    // deles entra o vídeo de "escutando" em loop.
+    responseVideos: [
+      "assets/apresentacao-parte2.mp4",
+      "assets/apresentacao-parte3.mp4",
+    ],
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
@@ -709,17 +715,19 @@
       videoFallback.style.display = "flex";
     });
 
-    // Quando a parte 1 termina (sem loop), entra o vídeo de "escutando"
-    // em loop, como se o apresentador estivesse aguardando a resposta.
+    // Quando um vídeo de conteúdo termina (parte 1 ou uma resposta,
+    // nenhum deles em loop), entra o vídeo de "escutando" em loop, como
+    // se o apresentador estivesse aguardando a resposta — desde que
+    // ainda tenha alguma resposta na fila esperando pra ser liberada.
     el.addEventListener("ended", ()=>{
       if (el !== activeEl) return;
-      if (!part2Triggered && el.currentSrc.includes(CONFIG.videoSrc)){
+      if (responseIndex < CONFIG.responseVideos.length){
         crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
           // Só mexe no elemento que acabou de sobrar DEPOIS da troca
           // (senão trocaria o src do vídeo que ainda está visível).
-          // Aproveita e já bufferiza a parte 2 nele, pra estar pronta
-          // quando a fala for detectada.
-          freeEl.src = CONFIG.videoSrc2;
+          // Aproveita e já bufferiza a próxima resposta nele, pra
+          // estar pronta quando a fala for detectada.
+          freeEl.src = CONFIG.responseVideos[responseIndex];
           freeEl.load();
         });
       }
@@ -728,13 +736,13 @@
 
   // ---------- Detecção de fala (100% local, nunca sai do navegador) ----------
   // Mede o volume do microfone pra saber quando a pessoa fala e quando
-  // termina de falar (silêncio sustentado). Ao detectar isso pela
-  // primeira vez, troca o vídeo pra parte 2, como se o apresentador
-  // tivesse "ouvido" e estivesse respondendo.
+  // termina de falar (silêncio sustentado). Cada vez que isso acontece,
+  // libera a próxima resposta da fila (CONFIG.responseVideos), como se
+  // o apresentador tivesse "ouvido" e estivesse respondendo.
   let vadStream = null;
   let vadAudioCtx = null;
   let vadRafId = null;
-  let part2Triggered = false;
+  let responseIndex = 0;
 
   async function setupVoiceDetection(){
     try{
@@ -784,9 +792,10 @@
   }
 
   function onPersonFinishedSpeaking(){
-    if (part2Triggered) return;
-    part2Triggered = true;
-    crossfadeTo(standbyEl, CONFIG.videoSrc2, false);
+    if (responseIndex >= CONFIG.responseVideos.length) return;
+    const nextSrc = CONFIG.responseVideos[responseIndex];
+    responseIndex++;
+    crossfadeTo(standbyEl, nextSrc, false);
   }
 
   function stopVoiceDetection(){
