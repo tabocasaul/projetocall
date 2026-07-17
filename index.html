@@ -484,7 +484,7 @@
     // parou) sempre que a transcrição pegar uma fala com cara de
     // dúvida/objeção sobre a chamada ser real.
     videoSrcObjection: "assets/apresentacao-objecao.mp4",
-    objectionPattern: /duvid|não\s*acredito|é\s*(você|voce|tu)\s*mesmo|é\s*real\b|é\s*ao\s*vivo|é\s*grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|é\s*(uma?\s*)?\bia\b|é\s*human|é\s*fake|mentira|não\s*é\s*real\b|não\s*é\s*você/i,
+    objectionPattern: /duvid|não\s*acredito|certeza\s*que\s*é|é\s*(o\s*senhor|a\s*senhora|você|voce|tu)\s*mesm|é\s*real\b|é\s*ao\s*vivo|é\s*(um\s*|uma\s*)?grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|é\s*(uma?\s*)?\bia\b|é\s*human|é\s*fake|montage|montad|editad|manipulad|mentira|não\s*é\s*real\b|não\s*é\s*você|não\s*é\s*o\s*senhor/i,
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
@@ -702,22 +702,24 @@
 
     // Quando um vídeo de conteúdo termina (parte 1 ou uma resposta,
     // nenhum deles em loop), entra o vídeo de "escutando" em loop, como
-    // se o apresentador estivesse aguardando a resposta — desde que
-    // ainda tenha alguma resposta na fila esperando pra ser liberada.
+    // se o apresentador estivesse aguardando a resposta. Isso acontece
+    // sempre, mesmo depois da última resposta da fila — assim, se a
+    // pessoa só levantar a dúvida/objeção bem no final, ainda dá pra
+    // reagir, mesmo sem mais nada pra "avançar".
     el.addEventListener("ended", ()=>{
       if (el !== activeEl) return;
       if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return; // tem retomada própria
-      if (responseIndex < CONFIG.responseVideos.length){
-        awaitingResponse = true; // só a partir de agora a fala conta
-        crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
-          // Só mexe no elemento que acabou de sobrar DEPOIS da troca
-          // (senão trocaria o src do vídeo que ainda está visível).
-          // Aproveita e já bufferiza a próxima resposta nele, pra
-          // estar pronta quando a fala for detectada.
+      awaitingResponse = true; // só a partir de agora a fala conta
+      crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
+        // Só mexe no elemento que acabou de sobrar DEPOIS da troca
+        // (senão trocaria o src do vídeo que ainda está visível).
+        // Se ainda tiver resposta na fila, já bufferiza a próxima nele,
+        // pra estar pronta quando a fala for detectada.
+        if (responseIndex < CONFIG.responseVideos.length){
           freeEl.src = CONFIG.responseVideos[responseIndex];
           freeEl.load();
-        });
-      }
+        }
+      });
     });
   });
 
@@ -727,7 +729,9 @@
   // no vídeo de "escutando" (awaitingResponse). Se um vídeo de conteúdo
   // ainda está tocando, a fala é ignorada (ex: a pessoa só concordando,
   // reagindo, comentando por cima) — o vídeo segue normalmente até
-  // chegar na hora de esperar a resposta de verdade.
+  // chegar na hora de esperar a resposta de verdade. Isso vale pra
+  // qualquer um dos loops (depois da parte 1, da parte 2 ou da parte 3)
+  // — a dúvida pode ser levantada em qualquer um deles.
   let responseIndex = 0;
   let objectionPlaying = false;
   let awaitingResponse = false;
@@ -741,21 +745,24 @@
       console.log("[fluxo] ignorado (objeção já em andamento):", text);
       return;
     }
-    awaitingResponse = false;
     if (CONFIG.objectionPattern.test(text)){
       console.log("[fluxo] objeção detectada:", text);
+      awaitingResponse = false;
       triggerObjectionBreaker();
-    } else {
-      console.log("[fluxo] avançando resposta:", text);
-      advanceResponse();
+      return;
     }
+    if (responseIndex >= CONFIG.responseVideos.length){
+      // Nada mais na fila — continua no loop final, ainda podendo
+      // reagir a uma objeção depois, em vez de travar a escuta.
+      console.log("[fluxo] nenhuma resposta na fila, continua no loop:", text);
+      return;
+    }
+    console.log("[fluxo] avançando resposta:", text);
+    awaitingResponse = false;
+    advanceResponse();
   }
 
   function advanceResponse(){
-    if (responseIndex >= CONFIG.responseVideos.length){
-      console.log("[fluxo] nenhuma resposta na fila (responseIndex:", responseIndex, ")");
-      return;
-    }
     const nextSrc = CONFIG.responseVideos[responseIndex];
     responseIndex++;
     console.log("[fluxo] trocando pra:", nextSrc);
