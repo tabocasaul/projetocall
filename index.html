@@ -869,7 +869,7 @@
               input: {
                 format: { type: "audio/pcm", rate: 24000 },
                 transcription: {
-                  model: "gpt-realtime-whisper",
+                  model: "whisper-1",
                   language: "pt",
                 },
               },
@@ -936,6 +936,11 @@
         handlePersonFinishedSpeaking(finalText);
       }
       captionsText.textContent = "Ouvindo…";
+    } else if (event.type === "error"){
+      // A sessão caiu do lado da OpenAI (canal já foi abortado nesse
+      // ponto) — reflete isso na interface em vez de deixar o botão
+      // "preso" mostrando transcrição ativa.
+      stopTranscription();
     }
   }
 
