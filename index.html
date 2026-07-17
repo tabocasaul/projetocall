@@ -493,6 +493,14 @@
     // a pessoa terminou de falar (fim de turno). Maior = menos chance
     // de avançar no meio de uma pausa natural da fala.
     turnSilenceMs: 1400,
+    // Quão alto o som precisa ser pra contar como "começou a falar"
+    // (0 a 1). Padrão da OpenAI é 0.5 — subi pra reduzir chance de
+    // ruído ambiente/captação do celular ser confundido com fala.
+    turnThreshold: 0.7,
+    // Tamanho mínimo do texto transcrito pra contar como resposta de
+    // verdade. Textos bem curtos costumam ser alucinação do modelo
+    // de transcrição a partir de ruído/silêncio, não fala real.
+    minResponseChars: 6,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -921,14 +929,21 @@
                   model: "whisper-1",
                   language: "pt",
                 },
+                // Ajuda a filtrar, do lado da OpenAI, o que sai pela
+                // própria caixa de som antes de decidir se é fala —
+                // "near_field" é o perfil certo pra microfone de
+                // celular (perto da boca/caixa), não de sala.
+                noise_reduction: { type: "near_field" },
                 // O padrão da OpenAI considera "terminou de falar" com
                 // só 200ms de silêncio — qualquer pausa natural no meio
                 // da frase já disparava a próxima etapa. Aumentando
                 // pra ~1.4s, só avança quando a pessoa realmente parou
-                // de falar (fim da pergunta/fala), não numa pausa.
+                // de falar (fim da pergunta/fala), não numa pausa. O
+                // threshold mais alto reduz ruído ambiente/eco sendo
+                // confundido com início de fala.
                 turn_detection: {
                   type: "server_vad",
-                  threshold: 0.5,
+                  threshold: CONFIG.turnThreshold,
                   prefix_padding_ms: 300,
                   silence_duration_ms: CONFIG.turnSilenceMs,
                 },
@@ -1013,7 +1028,7 @@
         window.callTranscript.push({ text: finalText, at: Date.now() });
         // Texto muito curto tende a ser ruído/respiração/eco captado
         // pelo microfone, não uma resposta de verdade — ignora.
-        if (finalText.length >= 3){
+        if (finalText.length >= CONFIG.minResponseChars){
           handlePersonFinishedSpeaking(finalText);
         } else {
           console.log("[fluxo] ignorado (texto curto demais, provável ruído):", finalText);
