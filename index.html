@@ -657,6 +657,13 @@
   // que a troca terminou, recebendo o elemento que sobrou livre.
   function crossfadeTo(el, src, loop, onSwapped){
     el.loop = !!loop;
+    // O vídeo de "escutando" (o único que usa loop) fica mudo: é
+    // justamente durante ele que o sistema está tentando ouvir a
+    // pessoa, e no celular a caixa de som fica perto o suficiente do
+    // microfone pra ele captar o próprio áudio do vídeo e confundir
+    // com a pessoa respondendo. Qualquer outro vídeo (conteúdo,
+    // objeção) continua com som normal.
+    el.muted = !!loop;
     if (!el.currentSrc.endsWith(src)){
       el.src = src;
       el.load();
@@ -872,7 +879,17 @@
       const ephemeralKey = tokenData.value;
       console.log("[transcricao] token recebido:", !!ephemeralKey);
 
-      transcribeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // echoCancellation ajuda o navegador a filtrar o que sai pela
+      // própria caixa de som do aparelho antes de mandar pro
+      // microfone — importante no celular, onde caixa e microfone
+      // ficam muito próximos.
+      transcribeStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       console.log("[transcricao] microfone concedido, tracks:", transcribeStream.getAudioTracks().length);
 
       const pc = new RTCPeerConnection();
@@ -990,11 +1007,17 @@
     if (event.type === "conversation.item.input_audio_transcription.delta"){
       captionsText.textContent = (captionsText.textContent === "Ouvindo…" ? "" : captionsText.textContent) + (event.delta || "");
     } else if (event.type === "conversation.item.input_audio_transcription.completed"){
-      const finalText = event.transcript || captionsText.textContent;
+      const finalText = (event.transcript || captionsText.textContent || "").trim();
       console.log("[transcricao] fala finalizada:", finalText);
       if (finalText && finalText !== "Ouvindo…"){
         window.callTranscript.push({ text: finalText, at: Date.now() });
-        handlePersonFinishedSpeaking(finalText);
+        // Texto muito curto tende a ser ruído/respiração/eco captado
+        // pelo microfone, não uma resposta de verdade — ignora.
+        if (finalText.length >= 3){
+          handlePersonFinishedSpeaking(finalText);
+        } else {
+          console.log("[fluxo] ignorado (texto curto demais, provável ruído):", finalText);
+        }
       }
       captionsText.textContent = "Ouvindo…";
     } else if (event.type === "error"){
