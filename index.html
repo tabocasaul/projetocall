@@ -915,6 +915,24 @@
       captionsBox.classList.remove("hidden");
       captionsText.textContent = "Ouvindo…";
       console.log("[transcricao] conectado e pronto");
+
+      const track = transcribeStream.getAudioTracks()[0];
+      console.log("[transcricao] track state:", track.readyState, "muted:", track.muted, "enabled:", track.enabled);
+      track.addEventListener("mute", ()=> console.warn("[transcricao] track do microfone mutou (sem áudio chegando do SO/navegador)"));
+      track.addEventListener("unmute", ()=> console.log("[transcricao] track do microfone voltou a ter áudio"));
+
+      // Confere periodicamente se áudio de verdade está saindo pela
+      // conexão (bytesSent crescendo) — se ficar sempre 0, o problema é
+      // que o áudio não está chegando na OpenAI, não a transcrição em si.
+      const statsInterval = setInterval(async ()=>{
+        if (!transcribePc){ clearInterval(statsInterval); return; }
+        const stats = await transcribePc.getStats();
+        stats.forEach(report=>{
+          if (report.type === "outbound-rtp" && report.kind === "audio"){
+            console.log("[transcricao] áudio enviado — bytesSent:", report.bytesSent, "packetsSent:", report.packetsSent);
+          }
+        });
+      }, 3000);
     } catch(err){
       // Liga sozinha em segundo plano — se falhar, a chamada em vídeo
       // continua normal, só sem a parte de transcrição/objeção.
