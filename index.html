@@ -489,6 +489,10 @@
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
     videoConnectDelayMs: 3000,
+    // Quanto tempo de silêncio a OpenAI espera antes de considerar que
+    // a pessoa terminou de falar (fim de turno). Maior = menos chance
+    // de avançar no meio de uma pausa natural da fala.
+    turnSilenceMs: 1400,
   };
 
   const prejoinScreen = document.getElementById("prejoin-screen");
@@ -871,6 +875,17 @@
                 transcription: {
                   model: "whisper-1",
                   language: "pt",
+                },
+                // O padrão da OpenAI considera "terminou de falar" com
+                // só 200ms de silêncio — qualquer pausa natural no meio
+                // da frase já disparava a próxima etapa. Aumentando
+                // pra ~1.4s, só avança quando a pessoa realmente parou
+                // de falar (fim da pergunta/fala), não numa pausa.
+                turn_detection: {
+                  type: "server_vad",
+                  threshold: 0.5,
+                  prefix_padding_ms: 300,
+                  silence_duration_ms: CONFIG.turnSilenceMs,
                 },
               },
             },
