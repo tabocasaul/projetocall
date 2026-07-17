@@ -725,18 +725,27 @@
   let objectionPlaying = false;
 
   function handlePersonFinishedSpeaking(text){
-    if (objectionPlaying) return;
+    if (objectionPlaying){
+      console.log("[fluxo] ignorado (objeção já em andamento):", text);
+      return;
+    }
     if (CONFIG.objectionPattern.test(text)){
+      console.log("[fluxo] objeção detectada:", text);
       triggerObjectionBreaker();
     } else {
+      console.log("[fluxo] avançando resposta:", text);
       advanceResponse();
     }
   }
 
   function advanceResponse(){
-    if (responseIndex >= CONFIG.responseVideos.length) return;
+    if (responseIndex >= CONFIG.responseVideos.length){
+      console.log("[fluxo] nenhuma resposta na fila (responseIndex:", responseIndex, ")");
+      return;
+    }
     const nextSrc = CONFIG.responseVideos[responseIndex];
     responseIndex++;
+    console.log("[fluxo] trocando pra:", nextSrc);
     crossfadeTo(standbyEl, nextSrc, false);
   }
 
@@ -822,21 +831,32 @@
 
   async function startTranscription(){
     transcribeBtn.disabled = true;
+    console.log("[transcricao] iniciando...");
     try{
       const tokenRes = await fetch(CONFIG.transcribeTokenEndpoint, { method: "POST" });
-      if (!tokenRes.ok) throw new Error("token endpoint failed");
+      console.log("[transcricao] token endpoint status:", tokenRes.status);
+      if (!tokenRes.ok) throw new Error("token endpoint failed: " + tokenRes.status);
       const tokenData = await tokenRes.json();
       const ephemeralKey = tokenData.value;
+      console.log("[transcricao] token recebido:", !!ephemeralKey);
 
       transcribeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log("[transcricao] microfone concedido, tracks:", transcribeStream.getAudioTracks().length);
 
       const pc = new RTCPeerConnection();
       transcribePc = pc;
       pc.addTrack(transcribeStream.getAudioTracks()[0], transcribeStream);
+      pc.addEventListener("connectionstatechange", ()=>{
+        console.log("[transcricao] connectionState:", pc.connectionState);
+      });
+      pc.addEventListener("iceconnectionstatechange", ()=>{
+        console.log("[transcricao] iceConnectionState:", pc.iceConnectionState);
+      });
 
       const dc = pc.createDataChannel("oai-events");
       transcribeDc = dc;
       dc.addEventListener("open", ()=>{
+        console.log("[transcricao] data channel aberto, mandando session.update");
         // A configuração da sessão (formato do áudio, modelo de
         // transcrição) vai aqui, depois que o canal abre — mandar isso
         // já na hora de gerar o token efêmero causava erro 500 na
@@ -857,9 +877,16 @@
           },
         }));
       });
+      dc.addEventListener("close", ()=>{
+        console.log("[transcricao] data channel fechado");
+      });
+      dc.addEventListener("error", (e)=>{
+        console.error("[transcricao] data channel erro:", e);
+      });
       dc.addEventListener("message", (e)=>{
         let event;
         try{ event = JSON.parse(e.data); } catch(_){ return; }
+        console.log("[transcricao] evento recebido:", event.type, event);
         handleTranscriptEvent(event);
       });
 
@@ -874,7 +901,8 @@
           "Content-Type": "application/sdp",
         },
       });
-      if (!sdpRes.ok) throw new Error("realtime SDP exchange failed");
+      console.log("[transcricao] resposta SDP status:", sdpRes.status);
+      if (!sdpRes.ok) throw new Error("realtime SDP exchange failed: " + sdpRes.status);
       const answerSdp = await sdpRes.text();
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
@@ -882,9 +910,11 @@
       transcribeBtn.classList.add("recording");
       captionsBox.classList.remove("hidden");
       captionsText.textContent = "Ouvindo…";
+      console.log("[transcricao] conectado e pronto");
     } catch(err){
       // Liga sozinha em segundo plano — se falhar, a chamada em vídeo
       // continua normal, só sem a parte de transcrição/objeção.
+      console.error("[transcricao] falhou:", err);
       stopTranscription();
     } finally {
       transcribeBtn.disabled = false;
@@ -896,6 +926,7 @@
       captionsText.textContent = (captionsText.textContent === "Ouvindo…" ? "" : captionsText.textContent) + (event.delta || "");
     } else if (event.type === "conversation.item.input_audio_transcription.completed"){
       const finalText = event.transcript || captionsText.textContent;
+      console.log("[transcricao] fala finalizada:", finalText);
       if (finalText && finalText !== "Ouvindo…"){
         window.callTranscript.push({ text: finalText, at: Date.now() });
         handlePersonFinishedSpeaking(finalText);
