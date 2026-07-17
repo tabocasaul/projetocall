@@ -880,6 +880,27 @@
 
       const dc = pc.createDataChannel("oai-events");
       transcribeDc = dc;
+      dc.addEventListener("open", ()=>{
+        // A configuração da sessão (formato do áudio, modelo de
+        // transcrição) vai aqui, depois que o canal abre — mandar isso
+        // já na hora de gerar o token efêmero causava erro 500 na
+        // OpenAI.
+        dc.send(JSON.stringify({
+          type: "session.update",
+          session: {
+            type: "transcription",
+            audio: {
+              input: {
+                format: { type: "audio/pcm", rate: 24000 },
+                transcription: {
+                  model: "gpt-realtime-whisper",
+                  language: "pt",
+                },
+              },
+            },
+          },
+        }));
+      });
       dc.addEventListener("message", (e)=>{
         let event;
         try{ event = JSON.parse(e.data); } catch(_){ return; }

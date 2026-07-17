@@ -22,15 +22,6 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify({
         session: {
           type: "transcription",
-          audio: {
-            input: {
-              format: { type: "audio/pcm", rate: 24000 },
-              transcription: {
-                model: "gpt-realtime-whisper",
-                language: "pt",
-              },
-            },
-          },
         },
       }),
     });
