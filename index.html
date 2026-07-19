@@ -267,6 +267,23 @@
     padding: 6px 14px;
     border-radius: 20px;
   }
+  #whatsapp-redirect-overlay{
+    position:absolute;
+    inset:0;
+    z-index: 10;
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    background: rgba(5,7,9,.92);
+  }
+  #whatsapp-redirect-overlay.visible{ display:flex; }
+  #whatsapp-redirect-overlay span{
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
   #video-fallback{
     position:absolute;
     inset:0;
@@ -454,6 +471,11 @@
       </div>
 
       <div id="captions" class="hidden"><span id="captions-text"></span></div>
+
+      <div id="whatsapp-redirect-overlay">
+        <div class="spinner"></div>
+        <span>Te chamando no WhatsApp…</span>
+      </div>
     </div>
 
     <div id="call-controls">
@@ -497,6 +519,12 @@
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
     videoConnectDelayMs: 3000,
+    // Assim que o último vídeo da fila (a confirmação final) termina
+    // de tocar, redireciona sozinho pro WhatsApp — sem botão, sem
+    // esperar mais nada, já que a pessoa confirmou dentro da própria
+    // conversa que ia continuar por lá.
+    whatsappUrl: "https://wa.me/5511916431700?text=" + encodeURIComponent("Oi! Acabei de terminar a chamada e quero continuar por aqui."),
+    whatsappRedirectDelayMs: 1200,
     // Quanto tempo de silêncio a OpenAI espera antes de considerar que
     // a pessoa terminou de falar (fim de turno). Maior = menos chance
     // de avançar no meio de uma pausa natural da fala.
@@ -539,6 +567,7 @@
 
   const captionsBox = document.getElementById("captions");
   const captionsText = document.getElementById("captions-text");
+  const whatsappOverlay = document.getElementById("whatsapp-redirect-overlay");
 
   const callTimerEl = document.getElementById("call-timer");
 
@@ -751,12 +780,21 @@
     // se o apresentador estivesse aguardando a resposta. Isso acontece
     // sempre, mesmo depois da última resposta da fila — assim, se a
     // pessoa só levantar a dúvida/objeção bem no final, ainda dá pra
-    // reagir, mesmo sem mais nada pra "avançar".
+    // reagir, mesmo sem mais nada pra "avançar". A exceção é quando a
+    // ÚLTIMA resposta da fila (a confirmação final) termina: nesse
+    // caso a pessoa já confirmou que ia continuar no WhatsApp, então
+    // vai direto pra lá, sem esperar mais nada.
     el.addEventListener("ended", ()=>{
       if (el !== activeEl) return;
       // Objeção (dúvida) e pergunta genérica têm retomada própria.
       if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return;
       if (el.currentSrc.endsWith(CONFIG.videoSrcGenericQuestion)) return;
+
+      if (responseIndex > 0 && responseIndex >= CONFIG.responseVideos.length){
+        redirectToWhatsApp();
+        return;
+      }
+
       awaitingResponse = true; // só a partir de agora a fala conta
       crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
         // Só mexe no elemento que acabou de sobrar DEPOIS da troca
@@ -770,6 +808,15 @@
       });
     });
   });
+
+  // Mostra uma transição rápida (sem botão, sem precisar clicar em
+  // nada) e manda a pessoa direto pro WhatsApp.
+  function redirectToWhatsApp(){
+    whatsappOverlay.classList.add("visible");
+    setTimeout(()=>{
+      window.location.href = CONFIG.whatsappUrl;
+    }, CONFIG.whatsappRedirectDelayMs);
+  }
 
   // ---------- Avanço da conversa (dirigido pela transcrição) ----------
   // Cada vez que a OpenAI fecha a transcrição de uma fala (pessoa falou
