@@ -475,11 +475,12 @@
     videoSrcListening: "assets/apresentacao-escutando.mp4",
     // Vídeos de resposta tocados em sequência, um por vez, cada um
     // liberado quando a fala da pessoa for detectada. Entre cada um
-    // deles entra o vídeo de "escutando" em loop. Hoje só tem a parte
-    // 2, que já é o vídeo final (encerra chamando a pessoa pro
-    // WhatsApp).
+    // deles entra o vídeo de "escutando" em loop. A parte 2 chama pro
+    // WhatsApp; quando a pessoa confirma, a parte 3 (final de verdade)
+    // fecha dizendo que vai mandar o áudio por lá.
     responseVideos: [
       "assets/apresentacao-parte2.mp4",
+      "assets/apresentacao-parte3.mp4",
     ],
     // Tocado (interrompendo o vídeo atual, que retoma depois de onde
     // parou) sempre que a transcrição pegar uma fala com cara de
@@ -692,9 +693,23 @@
       el.classList.add("active");
       activeEl.classList.remove("active");
       const prev = activeEl;
+      prev.pause(); // libera recursos — evita ficar tocando escondido em segundo plano
       standbyEl = prev;
       activeEl = el;
       if (onSwapped) onSwapped(prev);
+
+      // Rede de segurança extra: às vezes a troca é revelada (já tem
+      // quadro pra mostrar) mas o play() não pegou de verdade (ex:
+      // autoplay bloqueado silenciosamente, ou o navegador pausou o
+      // vídeo escondido). Confere pouco depois e tenta de novo; se
+      // ainda assim falhar, mostra o botão pra pessoa liberar o som.
+      setTimeout(()=>{
+        if (el === activeEl && el.paused){
+          el.play().catch(()=>{
+            tapToUnmute.style.display = "flex";
+          });
+        }
+      }, 400);
     }
 
     el.addEventListener("playing", reveal);
