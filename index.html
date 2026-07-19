@@ -486,6 +486,12 @@
     // dúvida/objeção sobre a chamada ser real.
     videoSrcObjection: "assets/apresentacao-objecao.mp4",
     objectionPattern: /duvid|não\s*acredito|certeza\s*que\s*é|é\s*(o\s*senhor|a\s*senhora|você|voce|tu)\s*mesm|é\s*real\b|é\s*ao\s*vivo|é\s*(um\s*|uma\s*)?grava(d|ç)|é\s*(um\s*)?(robo|robô|bot)|intelig[eê]ncia\s*artificial|é\s*(uma?\s*)?\bia\b|é\s*human|é\s*fake|montage|montad|editad|manipulad|mentira|não\s*é\s*real\b|não\s*é\s*você|não\s*é\s*o\s*senhor/i,
+    // Tocado quando a pessoa faz qualquer outra pergunta fora do
+    // roteiro (sobre o remédio, efeitos, uso, ou qualquer outro
+    // assunto) — não é dúvida sobre a chamada ser real, é só uma
+    // pergunta genérica que o roteiro não cobre.
+    videoSrcGenericQuestion: "assets/apresentacao-objecao-geral.mp4",
+    questionPattern: /\?|^\s*(o\s*que|que\s|como|quando|onde|por\s*que|porque|qual|quais|quem|quanto|quantos|posso|será|tem\s*como|dá\s*pra|dá\s*para|funciona|serve)/i,
     dailyLimit: 10,
     slotNumber: 9,
     transcribeTokenEndpoint: "/api/transcribe-token",
@@ -597,7 +603,7 @@
   // baixá-las em segundo plano desde já, com prioridade baixa — assim
   // ganham o máximo de tempo possível de buffer antes de serem
   // necessárias, especialmente em conexão mais lenta.
-  [...CONFIG.responseVideos, CONFIG.videoSrcObjection].forEach(src=>{
+  [...CONFIG.responseVideos, CONFIG.videoSrcObjection, CONFIG.videoSrcGenericQuestion].forEach(src=>{
     const link = document.createElement("link");
     link.rel = "prefetch";
     link.as = "video";
@@ -733,7 +739,9 @@
     // reagir, mesmo sem mais nada pra "avançar".
     el.addEventListener("ended", ()=>{
       if (el !== activeEl) return;
-      if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return; // tem retomada própria
+      // Objeção (dúvida) e pergunta genérica têm retomada própria.
+      if (el.currentSrc.endsWith(CONFIG.videoSrcObjection)) return;
+      if (el.currentSrc.endsWith(CONFIG.videoSrcGenericQuestion)) return;
       awaitingResponse = true; // só a partir de agora a fala conta
       crossfadeTo(standbyEl, CONFIG.videoSrcListening, true, (freeEl)=>{
         // Só mexe no elemento que acabou de sobrar DEPOIS da troca
@@ -773,7 +781,13 @@
     if (CONFIG.objectionPattern.test(text)){
       console.log("[fluxo] objeção detectada:", text);
       awaitingResponse = false;
-      triggerObjectionBreaker();
+      triggerObjectionBreaker(CONFIG.videoSrcObjection);
+      return;
+    }
+    if (CONFIG.questionPattern.test(text)){
+      console.log("[fluxo] pergunta genérica detectada:", text);
+      awaitingResponse = false;
+      triggerObjectionBreaker(CONFIG.videoSrcGenericQuestion);
       return;
     }
     if (responseIndex >= CONFIG.responseVideos.length){
@@ -800,7 +814,7 @@
   // trocamos o src dele). Como só entra aqui com awaitingResponse
   // (ou seja, estava no loop de escutando), volta a aguardar resposta
   // depois de retomar.
-  function triggerObjectionBreaker(){
+  function triggerObjectionBreaker(videoSrc){
     objectionPlaying = true;
     const resumeEl = activeEl;
     const resumeLoop = resumeEl.loop;
@@ -815,7 +829,7 @@
     }
     objectionEl.addEventListener("ended", onObjectionEnded);
 
-    crossfadeTo(objectionEl, CONFIG.videoSrcObjection, false);
+    crossfadeTo(objectionEl, videoSrc, false);
   }
 
   // ---------- Timer da chamada ----------
